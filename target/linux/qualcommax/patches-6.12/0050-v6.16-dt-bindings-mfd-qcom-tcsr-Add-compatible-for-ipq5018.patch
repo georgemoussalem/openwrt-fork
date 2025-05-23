@@ -1,0 +1,25 @@
+From 1d2c5d5f3f44ba45bf0e2ef9a51c77256b99afd2 Mon Sep 17 00:00:00 2001
+From: George Moussalem <george.moussalem@outlook.com>
+Date: Mon, 12 May 2025 18:36:46 +0400
+Subject: [PATCH] dt-bindings: mfd: qcom,tcsr: Add compatible for ipq5018
+
+Document the qcom,tcsr-ipq5018 compatible.
+
+Signed-off-by: George Moussalem <george.moussalem@outlook.com>
+Acked-by: Rob Herring (Arm) <robh@kernel.org>
+Link: https://lore.kernel.org/r/20250512-ipq5018-syscon-v1-1-eb1ad2414c3c@outlook.com
+Signed-off-by: Bjorn Andersson <andersson@kernel.org>
+---
+ Documentation/devicetree/bindings/mfd/qcom,tcsr.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/Documentation/devicetree/bindings/mfd/qcom,tcsr.yaml
++++ b/Documentation/devicetree/bindings/mfd/qcom,tcsr.yaml
+@@ -38,6 +38,7 @@ properties:
+           - qcom,sm8450-tcsr
+           - qcom,tcsr-apq8064
+           - qcom,tcsr-apq8084
++          - qcom,tcsr-ipq5018
+           - qcom,tcsr-ipq5332
+           - qcom,tcsr-ipq6018
+           - qcom,tcsr-ipq8064
