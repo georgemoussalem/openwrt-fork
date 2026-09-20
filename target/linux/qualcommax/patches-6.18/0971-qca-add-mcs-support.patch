@@ -219,18 +219,19 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  /* We return to original Alan's scheme. Hash table of resolved
   * entries is changed only in process context and protected
   * with weak lock mrt_lock. Queue of unresolved entries is protected
-@@ -116,6 +119,10 @@ static void igmpmsg_netlink_event(const
+@@ -118,7 +121,11 @@ static void mroute_netlink_event(struct
+ static void igmpmsg_netlink_event(const struct mr_table *mrt, struct sk_buff *pkt);
  static void mroute_clean_tables(struct mr_table *mrt, int flags,
  				struct list_head *dev_kill_list);
  static void ipmr_expire_process(struct timer_list *t);
++static struct mr_table *ipmr_get_table(struct net *net, u32 id);
 +static struct mfc_cache *ipmr_cache_find(struct mr_table *mrt, __be32 origin,
 +					 __be32 mcastgrp);
-+static struct mr_table *ipmr_get_table(struct net *net, u32 id); /* QCA ECM qca-mcs support */
 +static ipmr_mfc_event_offload_callback_t __rcu ipmr_mfc_event_offload_callback; /* QCA ECM qca-mcs support */
  
  #ifdef CONFIG_IP_MROUTE_MULTIPLE_TABLES
  #define ipmr_for_each_table(mrt, net)					\
-@@ -227,6 +234,80 @@ static int ipmr_rule_fill(struct fib_rul
+@@ -235,6 +241,80 @@ static int ipmr_rule_fill(struct fib_rul
  	return 0;
  }
  
@@ -311,7 +312,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  static const struct fib_rules_ops __net_initconst ipmr_rules_ops_template = {
  	.family		= RTNL_FAMILY_IPMR,
  	.rule_size	= sizeof(struct ipmr_rule),
-@@ -240,6 +321,156 @@ static const struct fib_rules_ops __net_
+@@ -248,6 +328,156 @@ static const struct fib_rules_ops __net_
  	.owner		= THIS_MODULE,
  };
  
@@ -468,7 +469,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  static int __net_init ipmr_rules_init(struct net *net)
  {
  	struct fib_rules_ops *ops;
-@@ -695,7 +926,7 @@ static int vif_delete(struct mr_table *m
+@@ -682,7 +912,7 @@ static int vif_delete(struct mr_table *m
  	if (!dev)
  		return -EADDRNOTAVAIL;
  
@@ -477,7 +478,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	call_ipmr_vif_entry_notifiers(net, FIB_EVENT_VIF_DEL, v, dev,
  				      vifi, mrt->id);
  	RCU_INIT_POINTER(v->dev, NULL);
-@@ -714,7 +945,7 @@ static int vif_delete(struct mr_table *m
+@@ -701,7 +931,7 @@ static int vif_delete(struct mr_table *m
  		WRITE_ONCE(mrt->maxvif, tmp + 1);
  	}
  
@@ -486,7 +487,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  	dev_set_allmulti(dev, -1);
  
-@@ -928,7 +1159,7 @@ static int vif_add(struct net *net, stru
+@@ -915,7 +1145,7 @@ static int vif_add(struct net *net, stru
  	v->remote = vifc->vifc_rmt_addr.s_addr;
  
  	/* And finish update writing critical data */
@@ -495,7 +496,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	rcu_assign_pointer(v->dev, dev);
  	netdev_tracker_alloc(dev, &v->dev_tracker, GFP_ATOMIC);
  	if (v->flags & VIFF_REGISTER) {
-@@ -937,7 +1168,7 @@ static int vif_add(struct net *net, stru
+@@ -924,7 +1154,7 @@ static int vif_add(struct net *net, stru
  	}
  	if (vifi+1 > mrt->maxvif)
  		WRITE_ONCE(mrt->maxvif, vifi + 1);
@@ -504,7 +505,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	call_ipmr_vif_entry_notifiers(net, FIB_EVENT_VIF_ADD, v, dev,
  				      vifi, mrt->id);
  	return 0;
-@@ -1226,6 +1457,10 @@ static int ipmr_mfc_delete(struct mr_tab
+@@ -1209,6 +1439,10 @@ static int ipmr_mfc_delete(struct mr_tab
  	call_ipmr_mfc_entry_notifiers(net, FIB_EVENT_ENTRY_DEL, c, mrt->id);
  	mroute_netlink_event(mrt, c, RTM_DELROUTE);
  	mr_cache_put(&c->_c);
@@ -515,7 +516,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  	return 0;
  }
-@@ -1247,15 +1482,19 @@ static int ipmr_mfc_add(struct net *net,
+@@ -1230,15 +1464,19 @@ static int ipmr_mfc_add(struct net *net,
  				   mfc->mfcc_mcastgrp.s_addr, parent);
  	rcu_read_unlock();
  	if (c) {
@@ -537,15 +538,14 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		return 0;
  	}
  
-@@ -1317,6 +1556,7 @@ static void mroute_clean_tables(struct m
+@@ -1321,5 +1560,6 @@ static void mroute_clean_tables(struct m
  	struct net *net = read_pnet(&mrt->net);
  	struct mfc_cache *cache;
  	struct mr_mfc *c, *tmp;
 +	u32 origin, group; /* QCA ECM qca-mcs support */
  	int i;
  
- 	/* Shut down all active vif entries */
-@@ -1339,10 +1579,18 @@ static void mroute_clean_tables(struct m
+@@ -1345,10 +1585,18 @@ static void mroute_clean_tables(struct m
  			rhltable_remove(&mrt->mfc_hash, &c->mnode, ipmr_rht_params);
  			list_del_rcu(&c->list);
  			cache = (struct mfc_cache *)c;
@@ -863,7 +863,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	call_ip6mr_vif_entry_notifiers(net, FIB_EVENT_VIF_ADD,
  				       v, dev, vifi, mrt->id);
  	return 0;
-@@ -1237,6 +1470,7 @@ static int ip6mr_mfc_delete(struct mr_ta
+@@ -1239,6 +1472,7 @@ static int ip6mr_mfc_delete(struct mr_ta
  			    int parent)
  {
  	struct mfc6_cache *c;
@@ -871,7 +871,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  	/* The entries are added/deleted only under RTNL */
  	rcu_read_lock();
-@@ -1245,6 +1479,11 @@ static int ip6mr_mfc_delete(struct mr_ta
+@@ -1247,6 +1481,11 @@ static int ip6mr_mfc_delete(struct mr_ta
  	rcu_read_unlock();
  	if (!c)
  		return -ENOENT;
@@ -883,7 +883,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	rhltable_remove(&mrt->mfc_hash, &c->_c.mnode, ip6mr_rht_params);
  	list_del_rcu(&c->_c.list);
  
-@@ -1252,6 +1491,11 @@ static int ip6mr_mfc_delete(struct mr_ta
+@@ -1254,6 +1493,11 @@ static int ip6mr_mfc_delete(struct mr_ta
  				       FIB_EVENT_ENTRY_DEL, c, mrt->id);
  	mr6_netlink_event(mrt, c, RTM_DELROUTE);
  	mr_cache_put(&c->_c);
@@ -895,7 +895,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	return 0;
  }
  
-@@ -1464,15 +1708,19 @@ static int ip6mr_mfc_add(struct net *net
+@@ -1466,15 +1710,19 @@ static int ip6mr_mfc_add(struct net *net
  				    &mfc->mf6cc_mcastgrp.sin6_addr, parent);
  	rcu_read_unlock();
  	if (c) {
@@ -917,7 +917,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		return 0;
  	}
  
-@@ -1536,6 +1784,7 @@ static int ip6mr_mfc_add(struct net *net
+@@ -1538,6 +1786,7 @@ static int ip6mr_mfc_add(struct net *net
  static void mroute_clean_tables(struct mr_table *mrt, int flags)
  {
  	struct mr_mfc *c, *tmp;
@@ -925,7 +925,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	LIST_HEAD(list);
  	int i;
  
-@@ -1557,6 +1806,12 @@ static void mroute_clean_tables(struct m
+@@ -1559,6 +1808,12 @@ static void mroute_clean_tables(struct m
  			if (((c->mfc_flags & MFC_STATIC) && !(flags & MRT6_FLUSH_MFC_STATIC)) ||
  			    (!(c->mfc_flags & MFC_STATIC) && !(flags & MRT6_FLUSH_MFC)))
  				continue;
@@ -938,7 +938,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  			rhltable_remove(&mrt->mfc_hash, &c->mnode, ip6mr_rht_params);
  			list_del_rcu(&c->list);
  			call_ip6mr_mfc_entry_notifiers(read_pnet(&mrt->net),
-@@ -1564,6 +1819,10 @@ static void mroute_clean_tables(struct m
+@@ -1566,6 +1821,10 @@ static void mroute_clean_tables(struct m
  						       (struct mfc6_cache *)c, mrt->id);
  			mr6_netlink_event(mrt, (struct mfc6_cache *)c, RTM_DELROUTE);
  			mr_cache_put(c);
@@ -949,7 +949,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		}
  	}
  
-@@ -1587,7 +1846,7 @@ static int ip6mr_sk_init(struct mr_table
+@@ -1589,7 +1848,7 @@ static int ip6mr_sk_init(struct mr_table
  	struct net *net = sock_net(sk);
  
  	rtnl_lock();
@@ -958,7 +958,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	if (rtnl_dereference(mrt->mroute_sk)) {
  		err = -EADDRINUSE;
  	} else {
-@@ -1595,7 +1854,7 @@ static int ip6mr_sk_init(struct mr_table
+@@ -1597,7 +1856,7 @@ static int ip6mr_sk_init(struct mr_table
  		sock_set_flag(sk, SOCK_RCU_FREE);
  		atomic_inc(&net->ipv6.devconf_all->mc_forwarding);
  	}
@@ -967,7 +967,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  	if (!err)
  		inet6_netconf_notify_devconf(net, RTM_NEWNETCONF,
-@@ -1625,14 +1884,14 @@ int ip6mr_sk_done(struct sock *sk)
+@@ -1627,14 +1886,14 @@ int ip6mr_sk_done(struct sock *sk)
  	rtnl_lock();
  	ip6mr_for_each_table(mrt, net) {
  		if (sk == rtnl_dereference(mrt->mroute_sk)) {

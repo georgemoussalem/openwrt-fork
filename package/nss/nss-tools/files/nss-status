@@ -107,6 +107,10 @@ done)
 ecm_loaded=$(mod ecm)
 ecm_v4=$(cat "$ECM/ecm_nss_ipv4/accelerated_count" 2>/dev/null || echo 0)
 ecm_v6=$(cat "$ECM/ecm_nss_ipv6/accelerated_count" 2>/dev/null || echo 0)
+# An nft flowtable forwards an established flow from its ingress hook, ahead of
+# the netfilter hooks ECM classifies from, so ECM never sees the flow and the
+# firmware exceptions every packet of it to the host.
+flowtables=$(nft list flowtables 2>/dev/null | grep -c '^[[:space:]]*flowtable ')
 
 bridge_mgr=$(mod qca_nss_bridge_mgr)
 mcs=$(mod qca_mcs)
@@ -410,7 +414,11 @@ else
 	echo "  kernel log:  clean (no WARN/oops this boot)"
 fi
 case "$state" in
-	active)  echo "  verdict:     OFFLOAD ACTIVE" ;;
+	active)  if [ "$flowtables" -gt 0 ]; then
+	             echo "  verdict:     FIRMWARE ARMED BUT AN NFT FLOWTABLE FORWARDS ESTABLISHED FLOWS AHEAD OF ECM - set firewall.@defaults[0].flow_offloading{,_hw}='0'"
+	         else
+	             echo "  verdict:     OFFLOAD ACTIVE"
+	         fi ;;
 	stalled) echo "  verdict:     FIRMWARE ARMED BUT HEARTBEAT SILENT - check logread; reboot returns to the host stack" ;;
 	host)    echo "  verdict:     host stack (NSS plane not armed - run nss-up or 'service nss start')" ;;
 esac
